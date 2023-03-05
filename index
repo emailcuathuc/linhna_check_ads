@@ -1,0 +1,165 @@
+function linhna_check_ads_shortcode( $atts ) {
+    $atts = shortcode_atts( array(
+        'utm_source' => 'ABC',
+        'time' => '24',
+        'count' => '3',
+    ), $atts, 'linhna_check_ads' );
+    
+    $utm_source = $atts['utm_source'];
+    $time = $atts['time'];
+    $count = $atts['count'];
+    
+    if ( isset( $_GET['utm_source'] ) && $_GET['utm_source'] == $utm_source ) {
+        $ip_address = $_SERVER['REMOTE_ADDR'];
+        $campaignid = isset( $_GET['campaignid'] ) ? $_GET['campaignid'] : '';
+        $adgroupid = isset( $_GET['adgroupid'] ) ? $_GET['adgroupid'] : '';
+        
+        // Bước 1: Đếm số lần truy cập có chứa tham số utm_source=ABC
+        $utm_count = 0;
+        $key = 'linhna_check_ads_' . $utm_source;
+        $values = isset( $_COOKIE[$key] ) ? json_decode( stripslashes( $_COOKIE[$key] ), true ) : array();
+        $current_time = time();
+        foreach ( $values as $value ) {
+            if ( $current_time - $value['time'] <= $time * 3600 ) {
+                $utm_count++;
+            }
+        }
+        
+        // Bước 2: Lấy tham số "campaignid" từ URL và set cookie có tên là "linhna_check_ads_campaignid"
+        if ( $campaignid ) {
+            setcookie( 'linhna_check_ads_campaignid', $campaignid, $current_time + 365 * 86400, '/' );
+        }
+        
+        // Bước 3: Lấy tham số "adgroupid" từ URL và lưu vào cookie có tên là "linhna_check_ads_adgroupid"
+        if ( $adgroupid ) {
+            setcookie( 'linhna_check_ads_adgroupid', $adgroupid, $current_time + 365 * 86400, '/' );
+        }
+    }
+    // Bước 4
+    function linhna_check_ads_set_ip_cookie() {
+    $ip = $_SERVER['REMOTE_ADDR'];
+    setcookie('linhna_check_ads_ip', $ip, time() + 3600 * 24, COOKIEPATH, COOKIE_DOMAIN);
+    }
+    add_action('init', 'linhna_check_ads_set_ip_cookie');
+    // Bước 5
+    function linhna_check_ads_check_visits() {
+    $utm_source = 'ABC'; // Tham số utm_source có thể thay đổi từ shortcode
+    $count = 3; // Số lần truy cập tối thiểu để xử lý (có thể thay đổi từ shortcode)
+    $time = 24; // Thời gian tính bằng giờ (có thể thay đổi từ shortcode)
+    
+    if (isset($_COOKIE['linhna_check_ads_first_visit'])) {
+        $first_visit = $_COOKIE['linhna_check_ads_first_visit'];
+        $visit_count = isset($_COOKIE['linhna_check_ads_visit_count']) ? $_COOKIE['linhna_check_ads_visit_count'] : 1;
+        $now = time();
+        $diff = $now - $first_visit;
+        $diff_hours = round($diff / (60 * 60), 1); // Chuyển thời gian thành giờ và lấy 1 chữ số sau dấu phẩy
+        
+        if ($diff_hours <= $time && $visit_count >= $count) {
+            // Xử lý khi số lượt truy cập chứa tham số utm_source=ABC > 3 trong 24 giờ tính từ lượt truy cập đầu tiên
+        }
+    } else {
+        $first_visit = time();
+        setcookie('linhna_check_ads_first_visit', $first_visit, time() + 3600 * 24, COOKIEPATH, COOKIE_DOMAIN);
+    }
+    
+    if (isset($_GET['utm_source']) && $_GET['utm_source'] == $utm_source) {
+        $visit_count = isset($_COOKIE['linhna_check_ads_visit_count']) ? $_COOKIE['linhna_check_ads_visit_count'] : 0;
+        setcookie('linhna_check_ads_visit_count', $visit_count + 1, time() + 3600 * 24, COOKIEPATH, COOKIE_DOMAIN);
+    }
+    }
+    add_action('init', 'linhna_check_ads_check_visits');
+    // Bước 6
+    // Lấy các giá trị cần lưu vào bảng
+    $utm_source = isset($_GET['utm_source']) ? sanitize_text_field($_GET['utm_source']) : '';
+    $campaignid = isset($_GET['campaignid']) ? sanitize_text_field($_GET['campaignid']) : '';
+    $adgroupid = isset($_GET['adgroupid']) ? sanitize_text_field($_GET['adgroupid']) : '';
+    $ip_address = $_SERVER['REMOTE_ADDR'];
+    
+    // Tạo bảng cơ sở dữ liệu nếu chưa tồn tại
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'linhna_check_ads';
+    
+    if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE $table_name (
+                id mediumint(9) NOT NULL AUTO_INCREMENT,
+                utm_source varchar(50) NOT NULL,
+                campaignid varchar(50) NOT NULL,
+                adgroupid varchar(50) NOT NULL,
+                ip_address varchar(50) NOT NULL,
+                time datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+                PRIMARY KEY (id)
+            ) $charset_collate;";
+    
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+    
+    // Lưu giá trị vào bảng
+    $inserted = $wpdb->insert(
+        $table_name,
+        array(
+            'utm_source' => $utm_source,
+            'campaignid' => $campaignid,
+            'adgroupid' => $adgroupid,
+            'ip_address' => $ip_address,
+            'time' => current_time('mysql'),
+        ),
+        array(
+            '%s',
+            '%s',
+            '%s',
+            '%s',
+            '%s',
+        )
+    );
+    // Bước 7
+    global $wpdb;
+
+    // Lấy giá trị cũ trong cơ sở dữ liệu
+    $query = $wpdb->prepare("SELECT * FROM {$wpdb->prefix}linhna_check_ads WHERE utm_source = %s", $utm_source);
+    $old_data = $wpdb->get_row($query);
+    
+    // Nếu không có dữ liệu cũ thì chèn mới
+    if (!$old_data) {
+        $wpdb->insert("{$wpdb->prefix}linhna_check_ads", $data);
+    } else {
+        // So sánh giá trị mới với giá trị cũ
+        $new_count = intval($data['count']);
+        $old_count = intval($old_data->count);
+    
+        if ($new_count > $old_count) {
+            // Nếu giá trị mới lớn hơn giá trị cũ thì cập nhật
+            $wpdb->update(
+                "{$wpdb->prefix}linhna_check_ads",
+                $data,
+                array('utm_source' => $utm_source)
+            );
+        } else if ($new_count == $old_count) {
+            // Nếu giá trị mới giống giá trị cũ thì bỏ qua
+            return;
+        } else {
+            // Nếu giá trị mới nhỏ hơn giá trị cũ thì chèn mới
+            $wpdb->insert("{$wpdb->prefix}linhna_check_ads", $data);
+        }
+    }
+    // Bước 8
+    // Kiểm tra nếu giá trị IP truy cập website đã tồn tại trong database
+    // và giá trị của adgroupid và campaignid khác với giá trị lưu trữ trong database
+    // thì tạo thêm một hàng mới trong database
+    $existing_row = $wpdb->get_row("SELECT * FROM linhna_check_ads WHERE ip_address = '{$ip_address}' AND ad_group_id = '{$ad_group_id}' AND campaign_id = '{$campaign_id}'");
+    
+    if ($existing_row && ($existing_row->ad_group_id != $ad_group_id || $existing_row->campaign_id != $campaign_id)) {
+        $data = array(
+            'utm_source_count' => 1,
+            'campaign_id' => $campaign_id,
+            'ad_group_id' => $ad_group_id,
+            'ip_address' => $ip_address,
+            'created_at' => $current_time
+        );
+        $wpdb->insert('linhna_check_ads', $data);
+    }
+
+    return $content;
+}
+add_shortcode( 'linhna_check_ads', 'linhna_check_ads_shortcode' );
